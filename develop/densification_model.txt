@@ -1,0 +1,201 @@
+def densification()
+
+    % model function
+    update_params = 1; %0 if no update, 1 if update
+    plot_opt = 0; %0 or 1 if plot function is desired
+    ts = 1000; % timesteps between plots
+    save_during_run = 0; % choose whether or not to save workspace every ts*q timesteps during run
+    q = 4; %save every ts*q timesteps
+    current_ae_main = {}; %initializes save cell
+
+
+    if update_params == 1
+        densification_parameters(kg_in,b_in); %creates d_param
+    end
+
+    load('d_params.mat'); %loads in matfile with all variables
+
+    %FP_core = load_FP_core();
+    %FP_pRES = load_FP_pRES();
+
+    %%
+    for i=1:length(t)
+
+        % updates grid given accumulation, advection 
+        zs = (b*rho_i/rho_s - w(1)).* dt;
+
+        firn_base = z(end) + zs; 
+
+        % firn_base/(desired grid_size)
+
+        z = linspace(0,firn_base,grid_size); %z = 0 at top, depth changes
+        dz = mean(diff(z)); 
+
+        % reinterpolate variables on new grid, assuming topmost grid section at surface
+
+        %new_b = b*rho_i/rho_s*dt/dz; % percent of top grid step that has surface properties (new accumulation)
+
+        rho_prev = interp1(z_prev + zs,rho_prev,z,'linear','extrap');
+        rho_prev(1) = rho_s;%new_b*rho_s + (1-new_b)*rho_prev(2);
+
+        %T
+        T_prev = interp1(z_prev + zs,T_prev,z,'linear','extrap');
+        T_prev(1) = T_s;%new_b*T_s + (1-new_b)*T_prev(2);
+
+        %r2
+        r2_prev = interp1(z_prev + zs,r2_prev,z,'linear','extrap');
+        r2_prev(1) = r2_s;%new_b*r2_s + (1-new_b)*r2_prev(2);
+
+        %(w has no t dependence so is already reinitialized every time step)
+
+
+        %% update overburden
+        sigma = cumtrapz((g.*rho_prev.*dz));
+
+        %% update velocity
+        w = zeros(1,length(z));
+        w(end) = b*rho_i/rho_prev(end); %assumes advection out base at average accumulation rate
+
+        J = find(rho_prev > 550);
+
+            %rho > 550
+            for j = length(z):-1:min(J)
+                w(j-1) = w(j) + (1./rho_prev(j))*kc_high.*(rho_i-rho_prev(j)).*sigma(j).*exp(-Ec./(R.*T_prev(j))).*dz./r2_prev(j);
+            end
+            %transition phase based on morris?
+
+            % rho < 550
+            for j = min(J):-1:2
+                w(j-1) = w(j) + (1./rho_prev(j)).*kc_low.*(rho_i-rho_prev(j)).*sigma(j).*exp(-Ec./(R.*T_prev(j))).*dz./r2_prev(j);
+
+            end
+
+        %% update temperature
+            kappa = kappa_i * (rho_prev./rho_i).^2; 
+            alpha = kappa./(rho_prev.*c_p);
+
+             T(2:end-1) = T(2:end-1)...
+                   + dt*...
+                   ( alpha(2:end-1).*(T(3:end)-2*T(2:end-1)+T(1:end-2))./dz^2 - w(2:end-1).*(T(3:end)-T(1:end-2))./(2*dz) )   ;
+
+        %BCs
+           %T_s = 15*sin(2*pi*t(i)/(lambda*secpy))+Tav;
+          T(1) = T_s;
+          T(end) = T_b; %T(end-1) + (G/kappa_i * dz);
+    %    
+    %       T = linspace(T_s,T_b,grid_size);
+
+
+       %% update grain size
+           r2(2:end) = r2_prev(2:end)  + dt *((w(1:end-1)+w(2:end))/2.*(r2_prev(1:end-1)-r2_prev(2:end))./dz + kg*exp(-Eg./(R.*T(2:end))) )   ;
+
+
+        %% update density
+
+        rho(2:end) = rho_prev(2:end) + dt.*((rho_prev(1:end-1) .* w(1:end-1)) - (rho_prev(2:end) .* w(2:end)))./dz;
+        %rho(1) = rho_s; %should interpolate this, not set to rho_s
+
+        %% convergence criteria -- sum of squares and ignores first 50 ( takes a
+        %minute to deviate from input)
+        if (sum((rho-rho_prev).^2)) < 1e-6 && i > 50 || i >= (length(t)-1)
+            a = length(current_ae_main) + 1;
+            current_ae_main{a} = {b,z,w,T,r2,rho};
+            save('last_run_ae_main.mat');
+            break
+        end 
+
+        %save variables every j/4 time steps
+        if save_during_run == 1
+            if rem(i,ts*q) == 0
+                a = length(current_ae_main) + 1;
+                current_ae_main{a} = {b,z,w,T,r2,rho};
+                save('current_ae_main.mat');
+            end
+        end
+
+        %% update variables
+        rho_prev = rho;
+        T_prev = T;
+        z_prev = z;
+        r2_prev = r2;
+
+
+        %% plotting
+        if plot_opt == 1 && rem(i,ts) == 0
+
+
+            model_c = [0/255 73/255 73/255];
+
+            figure(3)
+
+            set(gcf,'Pos',[ 0.0010    0.0410    1.5360    0.7488]*1e3)
+
+            subplot(2,2,1)
+            plot(550*ones(1,length(z)), z,'--');
+            hold on;
+            %plot(FP_core.rho,FP_core.z,'o','Color',[130/255,130/255,130/255,.6]);
+            plot(rho,z,'Color',model_c,'LineWidth',2);
+            hold off;
+            set(gca,'YDir','reverse')
+            xlim([300,1000])
+            ylim([0,max(z)])
+            xlabel('\rho [kg/m^3]','FontSize',20)
+            ylabel('z [m]','FontSize',20)
+            title(['Density profile at steady state'],'FontSize',20)
+            set(gca, 'LineWidth',2,'Fontsize',20)
+
+    %        rho_compare = interp1(z,rho,FP_core.z);
+    %        rho_compare(1) = rho_s;
+
+    %         subplot(2,3,2)
+    %         plot(FP_core.rho-rho_compare,FP_core.z,'Color',[143/255,0,0,.7],'LineWidth',2);
+    %         set(gca,'YDir','reverse')
+    %         ylim([0,max(z)])
+    %         xlabel('\rho-fletcher density [kg/m^3]','FontSize',20)
+    %         ylabel('z [m]','FontSize',20)
+    %         title(['Density profile mismatch at steady state'],'FontSize',20)
+    %         set(gca, 'LineWidth',2,'Fontsize',20)
+
+
+            subplot(2,2,2)
+            plot((w-w(end)).*secpy,z,'Color',model_c,'LineWidth',2);
+            set(gca,'YDir','reverse')
+            xlim([0 .8])
+            ylim([0 max(z)])
+            xlabel('w_c [m/yr]','FontSize',20)
+            title('Densification velocity','FontSize',20)
+            set(gca, 'LineWidth',2,'Fontsize',20)
+            hold off;
+
+            subplot(2,2,3)
+            plot(r2,z,'Color',model_c,'LineWidth',2);
+            set(gca,'YDir','reverse')
+            ylim([0 max(z)])
+            xlabel('r^2 [mm^2]','FontSize',20)
+            title('Grain size','FontSize',20);
+            set(gca, 'LineWidth',2,'Fontsize',20)
+
+            subplot(2,2,4)
+            plot(T,z,'Color',model_c,'LineWidth',2);
+            hold off;
+            set(gca,'YDir','reverse')
+            ylim([0 max(z)])
+            xlim([246 - 20, 246 + 20])
+            xlabel('T [K]','FontSize',20)
+            title('Temperature','FontSize',20);
+            set(gca, 'LineWidth',2,'Fontsize',20)
+
+
+            drawnow;
+
+
+
+        end
+
+    end
+
+    %rho = interp1(z,rho,FP_core.z(FP_core.z<200),'linear','extrap');
+    %w_final = interp1(z,(w-w(end)).*secpy,z_invert,'linear','extrap');
+
+    %end
+end

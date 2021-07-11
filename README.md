@@ -1,10 +1,5 @@
-# Firn densification
+# Codebase for Phase-sensitive radar as a tool for measuring firn compaction
 
-This repository stores all the (python) code I'm working on related to firn densification. In particular, we are looking at
+This code reproduces the figures and provides the code for the methods and model as described in Case E and Kingslake J. (2021). Phase-sensitive radar as a tool for measuring firn compaction. 
 
-1. extracting a firn compaction signal from ApRES
-2. investigating accuulation and temperature sensitivities 
-    - analytically
-    - numerically
-    
-    Eventually, this project will have its own .yml. All end products can be visualized in accompanying jupyter noteboks, although the goal is to code in good form and use scripts for funcitons, parameters, etc. Refer to the help files in each folder for more specific information.
+Description is forthcoming, but the code is somewhat commented. Please feel free to email me with any questions at ehc2150 [at] columbia [dot] edu.
